@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Ajedrez Online PRO</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body{
+    margin:0;
+    font-family:Arial;
+    background:linear-gradient(135deg,#141E30,#243B55);
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    color:white;
+    min-height:100vh;
+}
+
+h1{margin-top:20px;}
+
+#panel{
+    margin-top:30px;
+    text-align:center;
+}
+
+button{
+    padding:10px 15px;
+    margin:5px;
+    font-size:16px;
+    border:none;
+    border-radius:8px;
+    cursor:pointer;
+    background:#00c6ff;
+    color:white;
+}
+
+input{
+    padding:8px;
+    font-size:16px;
+}
+
+#game{
+    display:none;
+    margin-top:20px;
+}
+
+#container{
+    display:flex;
+    gap:30px;
+    flex-wrap:wrap;
+    justify-content:center;
+}
+
+#board{
+    display:grid;
+    grid-template-columns:repeat(8,70px);
+    grid-template-rows:repeat(8,70px);
+    border:4px solid white;
+}
+
+.square{
+    width:70px;
+    height:70px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:42px;
+    cursor:pointer;
+}
+
+.light{background:#f0d9b5;}
+.dark{background:#b58863;}
+
+.whitePiece{
+    color:white;
+    text-shadow:0 0 8px #00ffff;
+}
+
+.blackPiece{
+    color:black;
+    text-shadow:0 0 8px red;
+}
+
+#chat{
+    width:250px;
+    background:white;
+    color:black;
+    border-radius:10px;
+    padding:10px;
+    display:flex;
+    flex-direction:column;
+}
+
+#messages{
+    flex:1;
+    overflow-y:auto;
+    border:1px solid gray;
+    margin-bottom:10px;
+    padding:5px;
+    font-size:14px;
+}
+
+#turnoAnim{
+    position:fixed;
+    top:40%;
+    left:50%;
+    transform:translate(-50%,-50%);
+    font-size:60px;
+    font-weight:bold;
+    color:gold;
+    display:none;
+    animation:spin 1.5s ease-out;
+}
+
+@keyframes spin{
+    0%{ transform:translate(-50%,-50%) rotateY(0deg) scale(0.5);}
+    50%{ transform:translate(-50%,-50%) rotateY(180deg) scale(1.3);}
+    100%{ transform:translate(-50%,-50%) rotateY(360deg) scale(1);}
+}
+
+#gameOverScreen{
+    position:fixed;
+    top:0;
+    left:0;
+    width:100%;
+    height:100%;
+    background:rgba(0,0,0,0.85);
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    display:none;
+}
+
+#gameOverText{
+    font-size:80px;
+    font-weight:bold;
+}
+
+.win{color:#00ff88;}
+.lose{color:red;}
+
+#promoScreen{
+    position:fixed;
+    top:0;
+    left:0;
+    width:100%;
+    height:100%;
+    background:rgba(0,0,0,0.85);
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    display:none;
+}
+
+#promoBox{
+    background:white;
+    color:black;
+    padding:30px;
+    border-radius:15px;
+    text-align:center;
+}
+
+#promoOptions span{
+    font-size:60px;
+    margin:15px;
+    cursor:pointer;
+}
+</style>
+</head>
+<body>
+
+<h1>♟ Ajedrez Online</h1>
+
+<div id="panel">
+    <button onclick="crearSala()">Crear Sala</button><br>
+    <input id="codigoInput" placeholder="Código sala">
+    <button onclick="unirseSala()">Unirse</button>
+    <p id="codigoMostrado"></p>
+</div>
+
+<div id="game">
+    <div id="container">
+        <div id="board"></div>
+
+        <div id="chat">
+            <div id="messages"></div>
+            <input id="msgInput" placeholder="Mensaje">
+            <button onclick="enviarMensaje()">Enviar</button>
+        </div>
+    </div>
+</div>
+
+<div id="turnoAnim">TU TURNO</div>
+
+<div id="gameOverScreen">
+    <div id="gameOverText"></div>
+</div>
+
+<div id="promoScreen">
+    <div id="promoBox">
+        <h2>Elige pieza</h2>
+        <div id="promoOptions"></div>
+    </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getDatabase, ref, set, update, get, onValue, push } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCiDFgMxrdKp6661wGj-k2Fwl-yFYubVJ8",
+  authDomain: "ajedrez-online-de955.firebaseapp.com",
+  databaseURL: "https://ajedrez-online-de955-default-rtdb.firebaseio.com/",
+  projectId: "ajedrez-online-de955",
+  storageBucket: "ajedrez-online-de955.firebasestorage.app",
+  messagingSenderId: "633737481574",
+  appId: "1:633737481574:web:b2eeae425a192e8dddcca7"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+let sala="";
+let color="";
+let turn="white";
+let board=[];
+let selected=null;
+let promocionPendiente=null;
+let lastTurnShown = null;
+
+const sonidoMover = new Audio("https://www.soundjay.com/chess/chess-move-1.mp3");
+const sonidoCaptura = new Audio("https://www.soundjay.com/chess/chess-capture-1.mp3");
+
+const piezas={
+r:"♜",n:"♞",b:"♝",q:"♛",k:"♚",p:"♟",
+R:"♖",N:"♘",B:"♗",Q:"♕",K:"♔",P:"♙"
+};
+
+const inicio=[
+["r","n","b","q","k","b","n","r"],
+["p","p","p","p","p","p","p","p"],
+["","","","","","","",""],
+["","","","","","","",""],
+["","","","","","","",""],
+["","","","","","","",""],
+["P","P","P","P","P","P","P","P"],
+["R","N","B","Q","K","B","N","R"]
+];
+
+window.crearSala=async function(){
+    sala=Math.random().toString(36).substring(2,7);
+    color="white";
+    board=JSON.parse(JSON.stringify(inicio));
+
+    await set(ref(db,"salas/"+sala),{
+        board:board,
+        turn:"white",
+        jugadores:{white:true,black:false}
+    });
+
+    document.getElementById("codigoMostrado").innerText="Código: "+sala;
+    esperarSegundoJugador();
+};
+
+window.unirseSala=async function(){
+    sala=document.getElementById("codigoInput").value.trim();
+    const snap=await get(ref(db,"salas/"+sala));
+    if(!snap.exists()){ alert("Sala no existe"); return; }
+
+    color="black";
+    await update(ref(db,"salas/"+sala+"/jugadores"),{black:true});
+    iniciarJuego();
+};
+
+function esperarSegundoJugador(){
+    onValue(ref(db,"salas/"+sala+"/jugadores"),snap=>{
+        if(snap.val().black) iniciarJuego();
+    });
+}
+
+function iniciarJuego(){
+    document.getElementById("panel").style.display="none";
+    document.getElementById("game").style.display="block";
+    escucharJuego();
+    escucharChat();
+}
+
+function escucharJuego(){
+    onValue(ref(db,"salas/"+sala),snap=>{
+        const data=snap.val();
+        if(!data) return;
+
+        board=data.board;
+        turn=data.turn;
+
+        dibujar();
+
+        if(turn===color && lastTurnShown!==turn){
+            mostrarTurnoAnim();
+            lastTurnShown=turn;
+        }
+    });
+}
+
+
+function dibujar(){
+    const b=document.getElementById("board");
+    b.innerHTML="";
+    for(let r=0;r<8;r++){
+        for(let c=0;c<8;c++){
+            let sq=document.createElement("div");
+            sq.className="square "+((r+c)%2==0?"light":"dark");
+
+            let pieza=board[r][c];
+            if(pieza){
+                let span=document.createElement("span");
+                span.innerHTML=piezas[pieza];
+                span.className=pieza===pieza.toUpperCase()?"whitePiece":"blackPiece";
+                sq.appendChild(span);
+            }
+
+            sq.onclick=()=>click(r,c);
+            b.appendChild(sq);
+        }
+    }
+}
+
+function mostrarTurnoAnim(){
+    const anim = document.getElementById("turnoAnim");
+    anim.style.display="block";
+    setTimeout(()=>{ anim.style.display="none"; },1500);
+}
+
+function click(r,c){
+    if(turn!==color) return;
+
+    if(selected){
+
+        let sr = selected.r;
+        let sc = selected.c;
+        let piece = board[sr][sc];
+        let target = board[r][c];
+        let valido = false;
+
+        
+
+        // no comer pieza propia
+        if(target !== ""){
+            if(piece === piece.toUpperCase() && target === target.toUpperCase()) return selected=null;
+            if(piece === piece.toLowerCase() && target === target.toLowerCase()) return selected=null;
+        }
+
+        // ====================
+        // PEONES
+        // ====================
+        if(piece === "P"){
+            if(r === sr-1 && c === sc && target === "") valido = true;
+            if(sr === 6 && r === 4 && c === sc && target === "" && board[5][c]==="") valido = true;
+            if(r === sr-1 && Math.abs(c-sc)===1 && target!=="" && target===target.toLowerCase()) valido = true;
+        }
+
+        else if(piece === "p"){
+            if(r === sr+1 && c === sc && target === "") valido = true;
+            if(sr === 1 && r === 3 && c === sc && target === "" && board[2][c]==="") valido = true;
+            if(r === sr+1 && Math.abs(c-sc)===1 && target!=="" && target===target.toUpperCase()) valido = true;
+        }
+
+        // ====================
+        // CABALLO (salta)
+        // ====================
+        else if(piece.toLowerCase() === "n"){
+            let dr = Math.abs(r-sr);
+            let dc = Math.abs(c-sc);
+            if((dr===2 && dc===1) || (dr===1 && dc===2)) valido = true;
+        }
+
+        // ====================
+        // TORRE
+        // ====================
+        else if(piece.toLowerCase() === "r"){
+            if(sr===r || sc===c){
+                if(caminoLibre(sr,sc,r,c)) valido = true;
+            }
+        }
+
+        // ====================
+        // ALFIL
+        // ====================
+        else if(piece.toLowerCase() === "b"){
+            if(Math.abs(r-sr)===Math.abs(c-sc)){
+                if(caminoLibre(sr,sc,r,c)) valido = true;
+            }
+        }
+
+        // ====================
+        // REINA
+        // ====================
+        else if(piece.toLowerCase() === "q"){
+            if(
+                sr===r || sc===c ||
+                Math.abs(r-sr)===Math.abs(c-sc)
+            ){
+                if(caminoLibre(sr,sc,r,c)) valido = true;
+            }
+        }
+
+        // ====================
+        // REY
+        // ====================
+        else if(piece.toLowerCase() === "k"){
+
+    // movimiento normal
+    if(Math.abs(r-sr)<=1 && Math.abs(c-sc)<=1){
+        valido = true;
+    }
+
+    // ENROQUE corto
+    if(piece==="K" && sr===7 && sc===4 && r===7 && c===6 && board[7][5]==="" && board[7][6]==="" && board[7][7]==="R"){
+        board[7][5]="R";
+        board[7][7]="";
+        valido=true;
+    }
+
+    if(piece==="k" && sr===0 && sc===4 && r===0 && c===6 && board[0][5]==="" && board[0][6]==="" && board[0][7]==="r"){
+        board[0][5]="r";
+        board[0][7]="";
+        valido=true;
+    }
+}
+
+
+        
+        if(valido){
+            board[r][c] = piece;
+            board[sr][sc] = "";
+            turn = turn==="white"?"black":"white";
+
+            verificarFin();
+
+            // SONIDO
+if(board[r][c] !== ""){
+    sonidoCaptura.play();
+}else{
+    sonidoMover.play();
+}
+
+            update(ref(db,"salas/"+sala),{
+                board:board,
+                turn:turn
+            });
+        }
+
+        selected=null;
+
+        if(target!==""){
+    sonidoCaptura.play();
+}else{
+    sonidoMover.play();
+}
+
+    }else{
+        let piece = board[r][c];
+        if(piece){
+            if(color==="white" && piece===piece.toUpperCase()) selected={r,c};
+            if(color==="black" && piece===piece.toLowerCase()) selected={r,c};
+        }
+    }
+}
+
+function caminoLibre(sr,sc,r,c){
+            let dr = Math.sign(r - sr);
+            let dc = Math.sign(c - sc);
+            let cr = sr + dr;
+            let cc = sc + dc;
+
+            while(cr !== r || cc !== c){
+                if(board[cr][cc] !== "") return false;
+                cr += dr;
+                cc += dc;
+            }
+            return true;
+        }
+
+        function verificarFin(){
+    let reyBlanco=false;
+    let reyNegro=false;
+
+    for(let r=0;r<8;r++){
+        for(let c=0;c<8;c++){
+            if(board[r][c]==="K") reyBlanco=true;
+            if(board[r][c]==="k") reyNegro=true;
+        }
+    }
+
+    if(!reyBlanco) mostrarResultado("black");
+    if(!reyNegro) mostrarResultado("white");
+}
+function verificarCoronacion(r,c){
+    const pieza = board[r][c];
+    if((pieza==="P" && r===0) || (pieza==="p" && r===7)){
+        mostrarPromocion(r,c,pieza===pieza.toUpperCase());
+        return true;
+    }
+    return false;
+}
+
+function mostrarPromocion(r,c,esBlanco){
+    promocionPendiente={r,c};
+    const screen=document.getElementById("promoScreen");
+    const options=document.getElementById("promoOptions");
+    options.innerHTML="";
+
+    const lista = esBlanco?["Q","R","B","N"]:["q","r","b","n"];
+
+    lista.forEach(p=>{
+        let span=document.createElement("span");
+        span.innerHTML=piezas[p];
+        span.onclick=()=>elegirPromocion(p);
+        options.appendChild(span);
+    });
+
+    screen.style.display="flex";
+}
+
+function elegirPromocion(p){
+    const {r,c}=promocionPendiente;
+    board[r][c]=p;
+    turn=turn==="white"?"black":"white";
+    update(ref(db,"salas/"+sala),{ board, turn });
+    document.getElementById("promoScreen").style.display="none";
+}
+
+function mostrarResultado(ganador){
+    const screen=document.getElementById("gameOverScreen");
+    const text=document.getElementById("gameOverText");
+    screen.style.display="flex";
+    text.innerText=color===ganador?"HAS GANADO":"HAS PERDIDO";
+    text.className=color===ganador?"win":"lose";
+}
+
+function escucharChat(){
+    onValue(ref(db,"salas/"+sala+"/chat"),snap=>{
+        const div=document.getElementById("messages");
+        div.innerHTML="";
+        snap.forEach(c=>{
+            div.innerHTML+="<div>"+c.val().msg+"</div>";
+        });
+        div.scrollTop=div.scrollHeight;
+    });
+}
+
+window.enviarMensaje=function(){
+    const txt=document.getElementById("msgInput").value.trim();
+    if(!txt) return;
+    push(ref(db,"salas/"+sala+"/chat"),{
+        msg:(color==="white"?"♔ ":"♚ ")+txt
+    });
+    document.getElementById("msgInput").value="";
+};
+</script>
+</body>
+</html>
